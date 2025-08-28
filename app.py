@@ -333,7 +333,7 @@ folium.raster_layers.ImageOverlay(
 ).add_to(m)
 
 
-            folium.LayerControl(collapsed=False).add_to(m)
+folium.LayerControl(collapsed=False).add_to(m)
             st_folium(m, width=None, height=600)
     else:
         st.info("Latitude/Longitude not provided — map disabled.")
