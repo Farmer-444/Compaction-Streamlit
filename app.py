@@ -11,6 +11,7 @@ import folium
 from streamlit_folium import st_folium
 from matplotlib import colors
 from PIL import Image
+import base64
 
 st.set_page_config(page_title="Compaction Explorer", layout="wide")
 st.title("🧱 Soil Compaction Explorer")
@@ -326,15 +327,20 @@ with tabs[1]:
             img.save(buf, format="PNG")
             png_bytes = buf.getvalue()
 
-            # Overlay
-            bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
-            folium.raster_layers.ImageOverlay(
-                image=png_bytes,
-                bounds=bounds,
-                opacity=0.45,
-                name=f"IDW {map_interval}",
-                origin="upper",
-            ).add_to(m)
+            # Convert PNG bytes -> data URL string (Folium needs a serializable value)
+b64 = base64.b64encode(png_bytes).decode("ascii")
+data_url = f"data:image/png;base64,{b64}"
+
+# Overlay (using data URL)
+bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
+folium.raster_layers.ImageOverlay(
+    image=data_url,          # <-- pass data URL, not bytes
+    bounds=bounds,
+    opacity=0.45,
+    name=f"IDW {map_interval}",
+    origin="upper",
+).add_to(m)
+
 
             # Point markers
             for _, r in avg_map.iterrows():
