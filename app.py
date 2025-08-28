@@ -1,5 +1,4 @@
 import io
-import json
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -7,10 +6,10 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# New: folium map with satellite imagery + streamlit-folium bridge
+# Map + interpolation helpers
 import folium
 from streamlit_folium import st_folium
-from matplotlib import cm, colors
+from matplotlib import colors
 from PIL import Image
 
 st.set_page_config(page_title="Compaction Explorer", layout="wide")
@@ -18,7 +17,7 @@ st.title("🧱 Soil Compaction Explorer")
 st.caption("Upload CSV/XLSX with penetrometer depths (e.g., 0in…11in), optional Lat/Lon, explore & map.")
 
 # -------------------------
-# Configuration (easy to change thresholds/colors)
+# Config (easy to change)
 # -------------------------
 PSI_THRESHOLDS = {"low": 150, "moderate": 200, "high": 300}
 PSI_COLORS = {
@@ -107,12 +106,17 @@ def reshape_long(df: pd.DataFrame, id_col: str, lat_col: Optional[str], lon_col:
     long["PSI"] = pd.to_numeric(long["PSI"], errors="coerce")
     long = long.dropna(subset=["PSI"])
 
-    long["Depth_in"] = long["Depth_label"].astype(str).str.replace(" ", "", regex=False).str.replace("in", "", regex=False).astype(int)
+    long["Depth_in"] = (
+        long["Depth_label"].astype(str)
+        .str.replace(" ", "", regex=False)
+        .str.replace("in", "", regex=False)
+        .astype(int)
+    )
     long["Depth_cm"] = long["Depth_in"] * 2.54
     return long, sorted(long["Depth_in"].unique().tolist())
 
 # -------------------------
-# UI: Tabs (Report View + Map)
+# Tabs (Report View + Map)
 # -------------------------
 tabs = st.tabs(["Report View", "Map"])
 
@@ -187,10 +191,10 @@ for name, (lo, hi) in intervals.items():
 field_avg = pd.DataFrame(field_avg)
 
 # -------------------------
-# TAB 1: REPORT VIEW  (Profiles merged in here)
+# TAB 1: REPORT VIEW  (Profiles merged)
 # -------------------------
 with tabs[0]:
-    # --- Field Summary metrics (highest PSI for each averaged interval)
+    # Metrics (highest PSI by interval)
     st.subheader("Field Summary")
     top_rows = []
     for name, (lo, hi) in intervals.items():
@@ -198,13 +202,15 @@ with tabs[0]:
         top_rows.append({"Interval": name, "Highest_PSI": m["PSI"].max() if not m.empty else np.nan})
     top_df = pd.DataFrame(top_rows)
 
-    exceed = (long[long["Depth_in"].between(0, 11)].groupby(id_col)["PSI"].max() > PSI_THRESHOLDS["high"]).mean() * 100
+    exceed = (long[long["Depth_in"].between(0, 11)]
+              .groupby(id_col)["PSI"].max() > PSI_THRESHOLDS["high"]).mean() * 100
 
     def overall_rating(x):
         if x >= 50: return "Severe"
         if x >= 20: return "High"
         if x >= 5:  return "Moderate"
         return "Low"
+
     rating = overall_rating(exceed)
 
     c1, c2 = st.columns([2, 1])
@@ -225,19 +231,18 @@ with tabs[0]:
         fig_rep.add_hline(y=PSI_THRESHOLDS["high"],     line_dash="dash", line_color=PSI_COLORS_HEX["high"])
         st.plotly_chart(fig_rep, use_container_width=True)
 
-    # --- Interval Averages per Point (moved here)
+    # Interval Averages per Point
     st.subheader("Interval Averages per Point")
     st.dataframe(avg_df, use_container_width=True)
     st.download_button("⬇️ Download interval averages (CSV)", data=avg_df.to_csv(index=False).encode("utf-8"),
                        file_name="interval_averages.csv", mime="text/csv")
 
-    # --- Depth Explorer (by the 3 intervals, not per inch)
+    # Depth Explorer (by the 3 intervals)
     st.subheader("Depth Explorer (by interval)")
     chosen_interval = st.selectbox("Choose interval", list(intervals.keys()), index=0)
     lo, hi = intervals[chosen_interval]
     sel_long = long[long["Depth_in"].between(lo, hi)].copy()
 
-    # overall stats
     left, right = st.columns(2)
     with left:
         overall = sel_long["PSI"].agg(["count","mean","median","std","min","max"]).to_frame().T
@@ -247,7 +252,7 @@ with tabs[0]:
         by_point = sel_long.groupby(id_col)["PSI"].agg(["count","mean","median","std","min","max"]).reset_index()
         st.dataframe(by_point, use_container_width=True)
 
-    # Per-point depth profile (still helpful to see curve)
+    # Per-point depth profile (still useful)
     st.subheader("Depth profile (single point)")
     point_choices = sorted(long[id_col].unique().tolist())
     chosen_point = st.selectbox("Point", options=point_choices, index=0)
@@ -257,7 +262,7 @@ with tabs[0]:
     fig_line.update_layout(xaxis_title="Depth (in)", yaxis_title="PSI")
     st.plotly_chart(fig_line, use_container_width=True)
 
-    # Export tidy + current selection
+    # Export
     st.subheader("Export")
     st.download_button("⬇️ Download long/tidy data (CSV)",
                        data=long.to_csv(index=False).encode("utf-8"),
@@ -268,7 +273,7 @@ with tabs[0]:
                        mime="text/csv")
 
 # -------------------------
-# TAB 2: MAP (satellite imagery + IDW interpolation)
+# TAB 2: MAP (Satellite + IDW interpolation)
 # -------------------------
 with tabs[1]:
     st.subheader("Compaction Map (Satellite + Interpolation)")
@@ -276,23 +281,25 @@ with tabs[1]:
         map_interval = st.selectbox("Depth interval", options=list(intervals.keys()), index=0)
         lo, hi = intervals[map_interval]
         base = long[long["Depth_in"].between(lo, hi)]
-        avg_map = (base.groupby(id_col)
-                        .agg({"PSI":"mean", lat_col:"first", lon_col:"first"})
-                        .reset_index()
-                        .rename(columns={lat_col:"lat", lon_col:"lon"}))
+        avg_map = (
+            base.groupby(id_col)
+            .agg({"PSI":"mean", lat_col:"first", lon_col:"first"})
+            .reset_index()
+            .rename(columns={lat_col:"lat", lon_col:"lon"})
+        )
+
         if avg_map.empty:
             st.info("No rows available for the selected interval.")
         else:
             # Build Folium map with Esri World Imagery
             center = [float(avg_map["lat"].mean()), float(avg_map["lon"].mean())]
-            m = folium.Map(location=center, zoom_start=14, tiles=None)
+            m = folium.Map(location=center, zoom_start=15, tiles=None)
             folium.TileLayer(
                 tiles="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                 attr="Esri World Imagery", name="Satellite"
             ).add_to(m)
 
-            # --- IDW interpolation onto a grid and add as image overlay
-            # build grid
+            # Grid bounds
             lat_min, lat_max = avg_map["lat"].min(), avg_map["lat"].max()
             lon_min, lon_max = avg_map["lon"].min(), avg_map["lon"].max()
             pad_lat = (lat_max - lat_min) * 0.1 or 0.0005
@@ -301,39 +308,48 @@ with tabs[1]:
             lon_lin = np.linspace(lon_min - pad_lon, lon_max + pad_lon, 150)
             grid_lon, grid_lat = np.meshgrid(lon_lin, lat_lin)
 
-            # IDW
+            # IDW interpolation (power=2)
             gx = grid_lon.flatten(); gy = grid_lat.flatten()
             xs = avg_map["lon"].to_numpy(); ys = avg_map["lat"].to_numpy(); zs = avg_map["PSI"].to_numpy()
-            # distance matrix (gx,gy) to (xs,ys)
             d2 = (gx[:,None]-xs[None,:])**2 + (gy[:,None]-ys[None,:])**2
             d2[d2 == 0] = 1e-12
-            w = 1.0 / d2  # power=2
+            w = 1.0 / d2
             z_idw = (w * zs[None,:]).sum(axis=1) / w.sum(axis=1)
             Z = z_idw.reshape(grid_lat.shape)
 
-           # colorize grid with a continuous colormap from green->yellow->red
-norm = colors.Normalize(vmin=max(0, float(Z.min())), vmax=float(Z.max()))
-cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
-rgba = cmap(norm(Z), bytes=True)  # (H,W,4) uint8
-img = Image.fromarray(rgba, mode="RGBA")
+            # Colorize to PNG bytes
+            norm = colors.Normalize(vmin=max(0, float(np.nanmin(Z))), vmax=float(np.nanmax(Z)))
+            cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
+            rgba = cmap(norm(Z), bytes=True)  # (H,W,4)
+            img = Image.fromarray(rgba, mode="RGBA")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            png_bytes = buf.getvalue()
 
-# >>> FIX: convert PIL Image -> PNG bytes for Folium <<<
-buf = io.BytesIO()
-img.save(buf, format="PNG")
-png_bytes = buf.getvalue()
+            # Overlay
+            bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
+            folium.raster_layers.ImageOverlay(
+                image=png_bytes,
+                bounds=bounds,
+                opacity=0.45,
+                name=f"IDW {map_interval}",
+                origin="upper",
+            ).add_to(m)
 
-# add overlay
-bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
-folium.raster_layers.ImageOverlay(
-    image=png_bytes,          # <-- bytes, not PIL image
-    bounds=bounds,
-    opacity=0.45,
-    name=f"IDW {map_interval}",
-    origin="upper",
-).add_to(m)
+            # Point markers
+            for _, r in avg_map.iterrows():
+                folium.CircleMarker(
+                    location=[float(r["lat"]), float(r["lon"])],
+                    radius=4,
+                    weight=1,
+                    color="#000000",
+                    fill=True,
+                    fill_opacity=0.9,
+                    fill_color=band_hex(float(r["PSI"])),
+                    tooltip=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI",
+                ).add_to(m)
 
-
-folium.LayerControl(collapsed=False).add_to(m)
-st_folium(m, width=None, height=600)
+            folium.LayerControl(collapsed=False).add_to(m)
+            st_folium(m, width=None, height=600)
     else:
         st.info("Latitude/Longitude not provided — map disabled.")
