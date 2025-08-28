@@ -311,33 +311,27 @@ with tabs[1]:
             z_idw = (w * zs[None,:]).sum(axis=1) / w.sum(axis=1)
             Z = z_idw.reshape(grid_lat.shape)
 
-            # colorize grid with a continuous colormap from green->yellow->red
-            norm = colors.Normalize(vmin=max(0, float(Z.min())), vmax=float(Z.max()))
-            cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
-            rgba = cmap(norm(Z), bytes=True)  # (H,W,4) uint8
-            img = Image.fromarray(rgba, mode="RGBA")
+           # colorize grid with a continuous colormap from green->yellow->red
+norm = colors.Normalize(vmin=max(0, float(Z.min())), vmax=float(Z.max()))
+cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
+rgba = cmap(norm(Z), bytes=True)  # (H,W,4) uint8
+img = Image.fromarray(rgba, mode="RGBA")
 
-            # add overlay
-            bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
-            folium.raster_layers.ImageOverlay(
-                image=img,
-                bounds=bounds,
-                opacity=0.45,
-                name=f"IDW {map_interval}"
-            ).add_to(m)
+# >>> FIX: convert PIL Image -> PNG bytes for Folium <<<
+buf = io.BytesIO()
+img.save(buf, format="PNG")
+png_bytes = buf.getvalue()
 
-            # add point markers
-            for _, r in avg_map.iterrows():
-                folium.CircleMarker(
-                    location=[float(r["lat"]), float(r["lon"])],
-                    radius=4,
-                    weight=1,
-                    color="#000000",
-                    fill=True,
-                    fill_opacity=0.9,
-                    fill_color=band_hex(float(r["PSI"])),
-                    tooltip=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI",
-                ).add_to(m)
+# add overlay
+bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
+folium.raster_layers.ImageOverlay(
+    image=png_bytes,          # <-- bytes, not PIL image
+    bounds=bounds,
+    opacity=0.45,
+    name=f"IDW {map_interval}",
+    origin="upper",
+).add_to(m)
+
 
             folium.LayerControl(collapsed=False).add_to(m)
             st_folium(m, width=None, height=600)
