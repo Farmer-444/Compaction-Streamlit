@@ -122,21 +122,27 @@ def reshape_long(df: pd.DataFrame, id_col: str, lat_col: Optional[str], lon_col:
 tabs = st.tabs(["Report View", "Map"])
 
 with st.sidebar:
+    st.header("0) Field information")
+    field_name = st.text_input("Field Name *", placeholder="e.g., VPF4")
+    sample_date = st.date_input("Date of sampling *")
+
     st.header("1) Upload data")
     up = st.file_uploader("CSV / TSV / Excel with depth columns (0in…11in)", type=["csv", "tsv", "xlsx", "xls"])
-    if up is None:
-        st.info("Upload a file to get started. Headers like: 'Point Number, Latitude, Longitude, 0in, 1in, …'")
+
+
+# Require field name + date BEFORE doing anything with the CSV
+if not field_name or not sample_date:
+    st.info("Enter **Field Name** and **Date of sampling** in the sidebar to continue.")
+    st.stop()
 
 if up is None:
+    st.info("Upload a CSV/XLSX to continue.")
     st.stop()
+
 
 raw = read_any(up)
 raw = clean_columns(raw)
 
-# Title / Field name prompt
-field_name = st.text_input("Field Name", placeholder="Enter field name (e.g., VPF4)")
-if field_name:
-    st.subheader(f"Field: {field_name}")
 
 st.success(f"Loaded {len(raw):,} rows × {len(raw.columns)} columns")
 st.dataframe(raw.head(10), use_container_width=True)
@@ -195,8 +201,29 @@ field_avg = pd.DataFrame(field_avg)
 # TAB 1: REPORT VIEW  (Profiles merged)
 # -------------------------
 with tabs[0]:
-    # Metrics (highest PSI by interval)
+    # ---------- Field Information ----------
+    st.subheader("Field Information")
+    # num_points will be computed after the ID column is chosen; we can compute here because mapping is done already
+    try:
+        num_points = int(pd.Series(raw[id_col]).nunique())
+    except Exception:
+        num_points = int(raw.shape[0])  # fallback
+
+    c_fi1, c_fi2, c_fi3 = st.columns([1.2, 1.2, 1])
+    with c_fi1:
+        st.caption("Field name")
+        st.markdown(f"**{field_name}**")
+    with c_fi2:
+        st.caption("Date of sampling")
+        st.markdown(f"**{sample_date.strftime('%Y-%m-%d')}**")
+    with c_fi3:
+        st.caption("# of collected compaction points")
+        st.markdown(f"**{num_points:,}**")
+
+    st.divider()
+    # ---------- Field Summary ----------
     st.subheader("Field Summary")
+
     top_rows = []
     for name, (lo, hi) in intervals.items():
         m = long[long["Depth_in"].between(lo, hi)]
