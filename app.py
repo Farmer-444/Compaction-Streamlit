@@ -27,7 +27,7 @@ PSI_COLORS = {
     "high": (211, 47, 47),      # red
 }
 
-FIELD_INFO_FONT_SIZE = 14  # change this number to make field info text bigger/smaller
+FIELD_INFO_FONT_SIZE = 10  # change this number to make field info text bigger/smaller
 
 PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
