@@ -212,13 +212,14 @@ with tabs[0]:
     c_fi1, c_fi2, c_fi3 = st.columns([1.2, 1.2, 1])
     with c_fi1:
         st.caption("Field name")
-        st.markdown(f"**{field_name}**")
+        st.write(field_name)
     with c_fi2:
         st.caption("Date of sampling")
-        st.markdown(f"**{sample_date.strftime('%Y-%m-%d')}**")
+        st.write(sample_date.strftime("%Y-%m-%d"))
     with c_fi3:
         st.caption("# of collected compaction points")
-        st.markdown(f"**{num_points:,}**")
+        st.write(f"{num_points:,}")
+
 
     st.divider()
     # ---------- Field Summary ----------
