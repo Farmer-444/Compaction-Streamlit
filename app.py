@@ -5,8 +5,13 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import pydeck as pdk
 import streamlit as st
+
+# New: folium map with satellite imagery + streamlit-folium bridge
+import folium
+from streamlit_folium import st_folium
+from matplotlib import cm, colors
+from PIL import Image
 
 st.set_page_config(page_title="Compaction Explorer", layout="wide")
 st.title("🧱 Soil Compaction Explorer")
@@ -15,23 +20,13 @@ st.caption("Upload CSV/XLSX with penetrometer depths (e.g., 0in…11in), optiona
 # -------------------------
 # Configuration (easy to change thresholds/colors)
 # -------------------------
-PSI_THRESHOLDS = {
-    "low": 150,
-    "moderate": 200,
-    "high": 300,
-}
-
+PSI_THRESHOLDS = {"low": 150, "moderate": 200, "high": 300}
 PSI_COLORS = {
-    "low": [46, 125, 50],       # green
-    "moderate": [251, 192, 45], # yellow
-    "high": [211, 47, 47],      # red
+    "low": (46, 125, 50),       # green
+    "moderate": (251, 192, 45), # yellow
+    "high": (211, 47, 47),      # red
 }
-
-PSI_COLORS_HEX = {
-    "low": "#2E7D32",
-    "moderate": "#FBC02D",
-    "high": "#D32F2F",
-}
+PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
 def psi_band(psi: float) -> str:
     if psi <= PSI_THRESHOLDS["low"]:
@@ -40,16 +35,12 @@ def psi_band(psi: float) -> str:
         return "moderate"
     return "high"
 
-def psi_rgb(psi: float):
+def band_rgb_tuple(psi: float):
     return PSI_COLORS[psi_band(psi)]
 
-def psi_kml_color(psi: float) -> str:
-    band = psi_band(psi)
-    if band == "low":
-        return "ff327d2e"  # green (aabbggrr)
-    if band == "moderate":
-        return "ff2dc0fb"  # yellow
-    return "ff2f2fd3"      # red
+def band_hex(psi: float):
+    r, g, b = band_rgb_tuple(psi)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 # -------------------------
 # Helpers
@@ -121,9 +112,9 @@ def reshape_long(df: pd.DataFrame, id_col: str, lat_col: Optional[str], lon_col:
     return long, sorted(long["Depth_in"].unique().tolist())
 
 # -------------------------
-# UI: Tabs (order requested)
+# UI: Tabs (Report View + Map)
 # -------------------------
-tabs = st.tabs(["Report View", "Map", "Profiles & Averages"])
+tabs = st.tabs(["Report View", "Map"])
 
 with st.sidebar:
     st.header("1) Upload data")
@@ -157,7 +148,7 @@ with st.sidebar:
     id_col  = st.selectbox("Point ID", options=cols, index=cols.index(id_guess))
     lat_col = st.selectbox("Latitude (optional)",  ["<none>"] + cols, index=(0 if not lat_guess else (cols.index(lat_guess) + 1)))
     lon_col = st.selectbox("Longitude (optional)", ["<none>"] + cols, index=(0 if not lon_guess else (cols.index(lon_guess) + 1)))
-    zone_col= st.selectbox("Zone (optional)",       ["<none>"] + cols, index=(0 if not zone_guess else (cols.index(zone_guess) + 1)))
+    zone_col= st.selectbox("Zone (optional)",      ["<none>"] + cols, index=(0 if not zone_guess else (cols.index(zone_guess) + 1)))
 
     lat_col = None if lat_col == "<none>" else lat_col
     lon_col = None if lon_col == "<none>" else lon_col
@@ -176,9 +167,11 @@ intervals = {
 # Per-point interval averages
 avg_records = []
 for name, (lo, hi) in intervals.items():
-    mask = (long["Depth_in"] >= lo) & (long["Depth_in"] <= hi)
     temp = (
-        long[mask].groupby(id_col)["PSI"].mean().reset_index().rename(columns={"PSI": f"PSI_avg_{name}"})
+        long[long["Depth_in"].between(lo, hi)]
+        .groupby(id_col)["PSI"].mean()
+        .reset_index()
+        .rename(columns={"PSI": f"PSI_avg_{name}"})
     )
     avg_records.append(temp)
 
@@ -194,40 +187,32 @@ for name, (lo, hi) in intervals.items():
 field_avg = pd.DataFrame(field_avg)
 
 # -------------------------
-# TAB 1: REPORT VIEW
+# TAB 1: REPORT VIEW  (Profiles merged in here)
 # -------------------------
 with tabs[0]:
+    # --- Field Summary metrics (highest PSI for each averaged interval)
     st.subheader("Field Summary")
-
-    # Highest PSI by each averaged interval
     top_rows = []
     for name, (lo, hi) in intervals.items():
         m = long[long["Depth_in"].between(lo, hi)]
         top_rows.append({"Interval": name, "Highest_PSI": m["PSI"].max() if not m.empty else np.nan})
     top_df = pd.DataFrame(top_rows)
 
-    # % of points exceeding high threshold at any depth (0–11)
     exceed = (long[long["Depth_in"].between(0, 11)].groupby(id_col)["PSI"].max() > PSI_THRESHOLDS["high"]).mean() * 100
 
     def overall_rating(x):
-        if x >= 50:
-            return "Severe"
-        if x >= 20:
-            return "High"
-        if x >= 5:
-            return "Moderate"
+        if x >= 50: return "Severe"
+        if x >= 20: return "High"
+        if x >= 5:  return "Moderate"
         return "Low"
-
     rating = overall_rating(exceed)
 
     c1, c2 = st.columns([2, 1])
     with c2:
-        v0 = top_df.loc[top_df["Interval"]=="0–3 in","Highest_PSI"].values[0]
-        v1 = top_df.loc[top_df["Interval"]=="4–7 in","Highest_PSI"].values[0]
-        v2 = top_df.loc[top_df["Interval"]=="8–11 in","Highest_PSI"].values[0]
-        st.metric("Highest PSI (0–3 in)", f"{v0:.0f}" if pd.notna(v0) else "—")
-        st.metric("Highest PSI (4–7 in)", f"{v1:.0f}" if pd.notna(v1) else "—")
-        st.metric("Highest PSI (8–11 in)", f"{v2:.0f}" if pd.notna(v2) else "—")
+        def safe_fmt(v): return f"{v:.0f}" if pd.notna(v) else "—"
+        st.metric("Highest PSI (0–3 in)", safe_fmt(top_df.loc[top_df["Interval"]=="0–3 in","Highest_PSI"].values[0]))
+        st.metric("Highest PSI (4–7 in)", safe_fmt(top_df.loc[top_df["Interval"]=="4–7 in","Highest_PSI"].values[0]))
+        st.metric("Highest PSI (8–11 in)", safe_fmt(top_df.loc[top_df["Interval"]=="8–11 in","Highest_PSI"].values[0]))
         st.metric(f"% points >{PSI_THRESHOLDS['high']} PSI (0–11)", f"{exceed:.1f}%")
         st.metric("Overall Compaction Rating", rating)
 
@@ -235,117 +220,126 @@ with tabs[0]:
         st.subheader("Field Average by Interval")
         fig_rep = px.bar(field_avg, x="Interval", y="PSI_mean", text="PSI_mean", title="Average PSI by Interval (All Points)")
         fig_rep.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-        fig_rep.add_hline(y=PSI_THRESHOLDS["low"], line_dash="dash", line_color=PSI_COLORS_HEX["low"])
+        fig_rep.add_hline(y=PSI_THRESHOLDS["low"],      line_dash="dash", line_color=PSI_COLORS_HEX["low"])
         fig_rep.add_hline(y=PSI_THRESHOLDS["moderate"], line_dash="dash", line_color=PSI_COLORS_HEX["moderate"])
-        fig_rep.add_hline(y=PSI_THRESHOLDS["high"], line_dash="dash", line_color=PSI_COLORS_HEX["high"])
+        fig_rep.add_hline(y=PSI_THRESHOLDS["high"],     line_dash="dash", line_color=PSI_COLORS_HEX["high"])
         st.plotly_chart(fig_rep, use_container_width=True)
 
+    # --- Interval Averages per Point (moved here)
+    st.subheader("Interval Averages per Point")
+    st.dataframe(avg_df, use_container_width=True)
+    st.download_button("⬇️ Download interval averages (CSV)", data=avg_df.to_csv(index=False).encode("utf-8"),
+                       file_name="interval_averages.csv", mime="text/csv")
+
+    # --- Depth Explorer (by the 3 intervals, not per inch)
+    st.subheader("Depth Explorer (by interval)")
+    chosen_interval = st.selectbox("Choose interval", list(intervals.keys()), index=0)
+    lo, hi = intervals[chosen_interval]
+    sel_long = long[long["Depth_in"].between(lo, hi)].copy()
+
+    # overall stats
+    left, right = st.columns(2)
+    with left:
+        overall = sel_long["PSI"].agg(["count","mean","median","std","min","max"]).to_frame().T
+        st.caption(chosen_interval)
+        st.dataframe(overall, use_container_width=True)
+    with right:
+        by_point = sel_long.groupby(id_col)["PSI"].agg(["count","mean","median","std","min","max"]).reset_index()
+        st.dataframe(by_point, use_container_width=True)
+
+    # Per-point depth profile (still helpful to see curve)
+    st.subheader("Depth profile (single point)")
+    point_choices = sorted(long[id_col].unique().tolist())
+    chosen_point = st.selectbox("Point", options=point_choices, index=0)
+    prof = long[long[id_col] == chosen_point].sort_values("Depth_in")
+    fig_line = px.line(prof, x="Depth_in", y="PSI", markers=True,
+                       title=f"Point {chosen_point} – Full depth profile")
+    fig_line.update_layout(xaxis_title="Depth (in)", yaxis_title="PSI")
+    st.plotly_chart(fig_line, use_container_width=True)
+
+    # Export tidy + current selection
+    st.subheader("Export")
+    st.download_button("⬇️ Download long/tidy data (CSV)",
+                       data=long.to_csv(index=False).encode("utf-8"),
+                       file_name="compaction_long.csv", mime="text/csv")
+    st.download_button(f"⬇️ Download selection ({chosen_interval}) (CSV)",
+                       data=sel_long.to_csv(index=False).encode("utf-8"),
+                       file_name=f"compaction_{chosen_interval.replace(' ','').replace('–','-')}.csv",
+                       mime="text/csv")
+
 # -------------------------
-# TAB 2: MAP (satellite + interpolated)
+# TAB 2: MAP (satellite imagery + IDW interpolation)
 # -------------------------
 with tabs[1]:
-    st.subheader("Compaction Map (Interpolated)")
+    st.subheader("Compaction Map (Satellite + Interpolation)")
     if lat_col and lon_col:
         map_interval = st.selectbox("Depth interval", options=list(intervals.keys()), index=0)
         lo, hi = intervals[map_interval]
         base = long[long["Depth_in"].between(lo, hi)]
-        avg_map = base.groupby(id_col).agg({"PSI":"mean", lat_col:"first", lon_col:"first"}).reset_index()
-        avg_map = avg_map.rename(columns={lat_col: "lat", lon_col: "lon"})
-
+        avg_map = (base.groupby(id_col)
+                        .agg({"PSI":"mean", lat_col:"first", lon_col:"first"})
+                        .reset_index()
+                        .rename(columns={lat_col:"lat", lon_col:"lon"}))
         if avg_map.empty:
             st.info("No rows available for the selected interval.")
         else:
-            # points
-            avg_map["rgb"] = avg_map["PSI"].apply(psi_rgb)
-            pts = pdk.Layer(
-                "ScatterplotLayer",
-                data=avg_map,
-                get_position='[lon, lat]',
-                get_radius=10,
-                pickable=True,
-                get_fill_color='rgb',
-            )
-            # interpolated surface (KDE-like)
-            heat = pdk.Layer(
-                "HeatmapLayer",
-                data=avg_map,
-                get_position='[lon, lat]',
-                get_weight='PSI',
-                radiusPixels=60,
-            )
-            view = pdk.ViewState(latitude=float(avg_map["lat"].mean()), longitude=float(avg_map["lon"].mean()), zoom=12)
-            deck = pdk.Deck(layers=[heat, pts], initial_view_state=view, map_style="mapbox://styles/mapbox/satellite-streets-v12")
-            st.pydeck_chart(deck)
+            # Build Folium map with Esri World Imagery
+            center = [float(avg_map["lat"].mean()), float(avg_map["lon"].mean())]
+            m = folium.Map(location=center, zoom_start=14, tiles=None)
+            folium.TileLayer(
+                tiles="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                attr="Esri World Imagery", name="Satellite"
+            ).add_to(m)
 
-            # KML export for the averaged interval
-            try:
-                import simplekml
-                kml = simplekml.Kml()
-                folder = kml.newfolder(name=f"Interval {map_interval}")
-                for _, r in avg_map.iterrows():
-                    p = folder.newpoint(name=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI", coords=[(float(r['lon']), float(r['lat']))])
-                    p.style.iconstyle.color = psi_kml_color(float(r["PSI"]))
-                    p.style.iconstyle.scale = 0.8
-                kml_bytes = kml.kml().encode("utf-8")
-                safe_name = map_interval.replace(' ', '').replace('–', '-')
-                st.download_button("⬇️ Download interval average (KML)", data=kml_bytes, file_name=f"compaction_{safe_name}.kml", mime="application/vnd.google-earth.kml+xml")
-            except Exception:
-                st.caption("Install 'simplekml' to enable KML export.")
+            # --- IDW interpolation onto a grid and add as image overlay
+            # build grid
+            lat_min, lat_max = avg_map["lat"].min(), avg_map["lat"].max()
+            lon_min, lon_max = avg_map["lon"].min(), avg_map["lon"].max()
+            pad_lat = (lat_max - lat_min) * 0.1 or 0.0005
+            pad_lon = (lon_max - lon_min) * 0.1 or 0.0005
+            lat_lin = np.linspace(lat_min - pad_lat, lat_max + pad_lat, 150)
+            lon_lin = np.linspace(lon_min - pad_lon, lon_max + pad_lon, 150)
+            grid_lon, grid_lat = np.meshgrid(lon_lin, lat_lin)
+
+            # IDW
+            gx = grid_lon.flatten(); gy = grid_lat.flatten()
+            xs = avg_map["lon"].to_numpy(); ys = avg_map["lat"].to_numpy(); zs = avg_map["PSI"].to_numpy()
+            # distance matrix (gx,gy) to (xs,ys)
+            d2 = (gx[:,None]-xs[None,:])**2 + (gy[:,None]-ys[None,:])**2
+            d2[d2 == 0] = 1e-12
+            w = 1.0 / d2  # power=2
+            z_idw = (w * zs[None,:]).sum(axis=1) / w.sum(axis=1)
+            Z = z_idw.reshape(grid_lat.shape)
+
+            # colorize grid with a continuous colormap from green->yellow->red
+            norm = colors.Normalize(vmin=max(0, float(Z.min())), vmax=float(Z.max()))
+            cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
+            rgba = cmap(norm(Z), bytes=True)  # (H,W,4) uint8
+            img = Image.fromarray(rgba, mode="RGBA")
+
+            # add overlay
+            bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
+            folium.raster_layers.ImageOverlay(
+                image=img,
+                bounds=bounds,
+                opacity=0.45,
+                name=f"IDW {map_interval}"
+            ).add_to(m)
+
+            # add point markers
+            for _, r in avg_map.iterrows():
+                folium.CircleMarker(
+                    location=[float(r["lat"]), float(r["lon"])],
+                    radius=4,
+                    weight=1,
+                    color="#000000",
+                    fill=True,
+                    fill_opacity=0.9,
+                    fill_color=band_hex(float(r["PSI"])),
+                    tooltip=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI",
+                ).add_to(m)
+
+            folium.LayerControl(collapsed=False).add_to(m)
+            st_folium(m, width=None, height=600)
     else:
         st.info("Latitude/Longitude not provided — map disabled.")
-
-# -------------------------
-# TAB 3: PROFILES & AVERAGES
-# -------------------------
-with tabs[2]:
-    st.subheader("Interval Averages per Point")
-    st.dataframe(avg_df, use_container_width=True)
-    csv_bytes = avg_df.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Download interval averages (CSV)", data=csv_bytes, file_name="interval_averages.csv", mime="text/csv")
-
-    st.divider()
-    st.header("Depth Explorer")
-
-    dmin, dmax = min(depth_levels), max(depth_levels)
-    depth_sel = st.slider("Depth (in)", min_value=int(dmin), max_value=int(dmax), value=int(dmin), step=1)
-
-    if zone_col:
-        zones = sorted(long[zone_col].dropna().astype(str).unique().tolist())
-        zsel = st.multiselect("Zones", zones, default=zones)
-        filt = (long["Depth_in"] == depth_sel) & (long[zone_col].astype(str).isin(zsel))
-    else:
-        filt = (long["Depth_in"] == depth_sel)
-
-    sel = long.loc[filt].copy()
-
-    left, right = st.columns(2)
-    with left:
-        overall = sel["PSI"].agg(["count", "mean", "median", "std", "min", "max"]).to_frame().T
-        st.subheader(f"Stats @ {depth_sel} in")
-        st.dataframe(overall, use_container_width=True)
-    with right:
-        by_point = sel.groupby(id_col)["PSI"].agg(["count", "mean", "median", "std", "min", "max"]).reset_index()
-        st.subheader("By-point stats")
-        st.dataframe(by_point, use_container_width=True)
-
-    st.subheader("Depth profile (single point)")
-    point_choices = sorted(long[id_col].unique().tolist())
-    default_pt = point_choices[0]
-    chosen_point = st.selectbox("Point", options=point_choices, index=point_choices.index(default_pt))
-    prof = long[long[id_col] == chosen_point].sort_values("Depth_in")
-    fig_line = px.line(prof, x="Depth_in", y="PSI", markers=True)
-    fig_line.update_layout(xaxis_title="Depth (in)", yaxis_title="PSI", title=f"Point {chosen_point}")
-    st.plotly_chart(fig_line, use_container_width=True)
-
-    pivot = long.pivot_table(index=id_col, columns="Depth_in", values="PSI", aggfunc="mean")
-    fig_hm = px.imshow(pivot, aspect="auto", origin="lower", title="PSI heatmap (Point × Depth)")
-    st.plotly_chart(fig_hm, use_container_width=True)
-
-    st.divider()
-    st.subheader("Export")
-    fcsv = long.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Download long/tidy data (CSV)", data=fcsv, file_name="compaction_long.csv", mime="text/csv")
-    selcsv = sel.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Download selection @ depth (CSV)", data=selcsv, file_name=f"compaction_depth_{depth_sel}in.csv", mime="text/csv")
-
-st.sidebar.caption("Built with Streamlit • Plotly • PyDeck")
