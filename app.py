@@ -26,6 +26,9 @@ PSI_COLORS = {
     "moderate": (251, 192, 45), # yellow
     "high": (211, 47, 47),      # red
 }
+
+FIELD_INFO_FONT_SIZE = 14  # change this number to make field info text bigger/smaller
+
 PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
 def psi_band(psi: float) -> str:
@@ -211,14 +214,23 @@ with tabs[0]:
 
     c_fi1, c_fi2, c_fi3 = st.columns([1.2, 1.2, 1])
     with c_fi1:
-        st.caption("Field name")
-        st.write(field_name)
+    st.caption("Field name")
+    st.markdown(
+        f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{field_name}</p>",
+        unsafe_allow_html=True
+        )
     with c_fi2:
-        st.caption("Date of sampling")
-        st.write(sample_date.strftime("%Y-%m-%d"))
+    st.caption("Date of sampling")
+    st.markdown(
+        f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{sample_date.strftime('%Y-%m-%d')}</p>",
+        unsafe_allow_html=True
+        )
     with c_fi3:
-        st.caption("# of collected compaction points")
-        st.write(f"{num_points:,}")
+    st.caption("# of collected compaction points")
+    st.markdown(
+        f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{num_points:,}</p>",
+        unsafe_allow_html=True
+        )
 
 
     st.divider()
