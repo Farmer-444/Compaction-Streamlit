@@ -4,3 +4,7 @@ numpy
 plotly
 pydeck
 simplekml
+folium
+streamlit-folium
+matplotlib
+pillow
