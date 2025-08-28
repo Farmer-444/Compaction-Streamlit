@@ -220,14 +220,14 @@ with tabs[0]:
         unsafe_allow_html=True
         )
     with c_fi2:
-    st.caption("Date of sampling")
-    st.markdown(
+        st.caption("Date of sampling")
+        st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{sample_date.strftime('%Y-%m-%d')}</p>",
         unsafe_allow_html=True
         )
     with c_fi3:
-    st.caption("# of collected compaction points")
-    st.markdown(
+        st.caption("# of collected compaction points")
+        st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{num_points:,}</p>",
         unsafe_allow_html=True
         )
