@@ -214,8 +214,8 @@ with tabs[0]:
 
     c_fi1, c_fi2, c_fi3 = st.columns([1.2, 1.2, 1])
     with c_fi1:
-    st.caption("Field name")
-    st.markdown(
+        st.caption("Field name")
+        st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{field_name}</p>",
         unsafe_allow_html=True
         )
