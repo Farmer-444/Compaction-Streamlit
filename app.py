@@ -352,6 +352,78 @@ with exp_interval:
         mime="text/csv",
     )
 
+# Per-point depth profile (still useful)
+    st.subheader("Depth profile (single point)")
+    point_choices = sorted(long[id_col].unique().tolist())
+    chosen_point = st.selectbox("Point", options=point_choices, index=0)
+    prof = long[long[id_col] == chosen_point].sort_values("Depth_in")
+    
+    import plotly.graph_objects as go
+    import numpy as np
+
+# thresholds
+    LOW  = PSI_THRESHOLDS["moderate"]   # 200
+    HIGH = PSI_THRESHOLDS["high"]       # 300
+
+    prof = prof.sort_values("Depth_in")
+    ps = prof["PSI"].to_numpy()
+    zs = prof["Depth_in"].to_numpy()
+
+    def segment_colorline(ps, zs, low, high):
+        bands = {"low": {"x": [], "y": []},
+             "moderate": {"x": [], "y": []},
+             "high": {"x": [], "y": []}}
+        n = len(ps)
+        for i in range(n - 1):
+            p1, p2 = ps[i], ps[i+1]
+            z1, z2 = zs[i], zs[i+1]
+            pts = [(p1, z1)]
+            def add_cross(thr):
+                if (p1 - thr) * (p2 - thr) < 0:
+                    t = (thr - p1) / (p2 - p1)
+                    zt = z1 + t * (z2 - z1)
+                    pts.append((thr, zt))
+            add_cross(low)
+            add_cross(high)
+            pts.append((p2, z2))
+            for j in range(len(pts) - 1):
+                pa, za = pts[j]; pb, zb = pts[j+1]
+                mid = 0.5 * (pa + pb)
+                if mid <= low:
+                    band = "low"
+                elif mid <= high:
+                    band = "moderate"
+                else:
+                    band = "high"
+                bands[band]["x"].extend([pa, pb, np.nan])
+                bands[band]["y"].extend([za, zb, np.nan])
+            return bands
+
+    bands = segment_colorline(ps, zs, LOW, HIGH)
+
+    fig_line = go.Figure()
+    colors = {"low": PSI_COLORS_HEX["low"],
+          "moderate": PSI_COLORS_HEX["moderate"],
+          "high": PSI_COLORS_HEX["high"]}
+
+    for name in ["low", "moderate", "high"]:
+        fig_line.add_trace(go.Scatter(
+            x=bands[name]["x"], y=bands[name]["y"],
+            mode="lines+markers",
+            line=dict(color=colors[name], width=3),
+            marker=dict(size=6),
+            name=name.capitalize(),
+            hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>"
+        ))
+
+    fig_line.update_yaxes(autorange="reversed", title="Depth (in)")
+    fig_line.update_xaxes(title="PSI")
+    fig_line.add_vline(x=LOW,  line_dash="dash", line_color=colors["moderate"])
+    fig_line.add_vline(x=HIGH, line_dash="dash", line_color=colors["high"])
+    fig_line.update_layout(title=f"Point {chosen_point} — PSI vs Depth")
+
+    st.plotly_chart(fig_line, use_container_width=True)
+
 
     # Depth Explorer (by the 3 intervals)
     # --- Depth Explorer (by interval) (collapsible) ---
@@ -397,17 +469,6 @@ with exp_depth:
     #     file_name=f"depth_{lo}-{hi}_stats.csv",
     #     mime="text/csv",
     # )
-
-
-    # Per-point depth profile (still useful)
-    st.subheader("Depth profile (single point)")
-    point_choices = sorted(long[id_col].unique().tolist())
-    chosen_point = st.selectbox("Point", options=point_choices, index=0)
-    prof = long[long[id_col] == chosen_point].sort_values("Depth_in")
-    fig_line = px.line(prof, x="Depth_in", y="PSI", markers=True,
-                       title=f"Point {chosen_point} – Full depth profile")
-    fig_line.update_layout(xaxis_title="Depth (in)", yaxis_title="PSI")
-    st.plotly_chart(fig_line, use_container_width=True)
 
     # --- Export ---
     st.subheader("Export")
