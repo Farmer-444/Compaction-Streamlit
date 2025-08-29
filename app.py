@@ -258,16 +258,24 @@ with tabs[0]:
         top_rows.append({"Interval": name, "Highest_PSI": m["PSI"].max() if not m.empty else np.nan})
     top_df = pd.DataFrame(top_rows)
 
-    exceed = (long[long["Depth_in"].between(0, 11)]
-              .groupby(id_col)["PSI"].max() > PSI_THRESHOLDS["high"]).mean() * 100
+   # % of points by compaction level (0–11 in range) using max PSI per point
+subset = long[long["Depth_in"].between(0, 11)].groupby(id_col)["PSI"].max()
 
-    def overall_rating(x):
-        if x >= 50: return "Severe"
-        if x >= 20: return "High"
-        if x >= 5:  return "Moderate"
-        return "Low"
+below_mod = (subset <= PSI_THRESHOLDS["moderate"]).mean() * 100  # ≤200
+exceed_mod = (subset >  PSI_THRESHOLDS["moderate"]).mean() * 100  # >200
+exceed_high = (subset >  PSI_THRESHOLDS["high"]).mean() * 100     # >300
 
-    rating = overall_rating(exceed)
+def overall_rating(x_percent_high):
+    if x_percent_high >= 50:
+        return "Severe"
+    if x_percent_high >= 20:
+        return "High"
+    if x_percent_high >= 5:
+        return "Moderate"
+    return "Low"
+
+rating = overall_rating(exceed_high)
+
 
     c1, c2 = st.columns([2, 1])
     with c2:
