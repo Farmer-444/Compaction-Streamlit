@@ -414,9 +414,9 @@ with exp_depth:
     st.download_button("⬇️ Download long/tidy data (CSV)",
                        data=long.to_csv(index=False).encode("utf-8"),
                        file_name="compaction_long.csv", mime="text/csv")
-    st.download_button(f"⬇️ Download selection ({chosen_interval}) (CSV)",
+    st.download_button(f"⬇️ Download selection ({depth_choice}) (CSV)",
                        data=sel_long.to_csv(index=False).encode("utf-8"),
-                       file_name=f"compaction_{chosen_interval.replace(' ','').replace('–','-')}.csv",
+                       file_name=f"compaction_{depth_choice.replace(' ','').replace('–','-')}.csv",
                        mime="text/csv")
 
 # -------------------------
