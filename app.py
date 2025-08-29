@@ -274,7 +274,7 @@ with tabs[0]:
             return "Moderate"
         return "Low"
 
-    rating = overall_rating(exceed_higTHIS IS WHh)
+    rating = overall_rating(exceed_high)
 
 
     c1, c2 = st.columns([2, 1])
