@@ -319,11 +319,38 @@ with tabs[0]:
         st.plotly_chart(fig_rep, use_container_width=True)
 
     # Interval Averages per Point
-    with st.expander("Interval Averages per Point", expanded=False):
-        st.subheader("Interval Averages per Point")
-    # (keep your same table + download code, just indented)
-        st.dataframe(per_point_df, use_container_width=True)  # <-- your variable name here
-        st.download_button("⬇️ Download interval averages (CSV)", data=per_point_csv, file_name="interval_averages.csv", mime="text/csv")  # <-- your existing download line
+    # --- Interval Averages per Point (collapsible) ---
+exp_interval = st.expander("Interval Averages per Point", expanded=False)
+with exp_interval:
+    st.subheader("Interval Averages per Point")
+
+    # Build the per-point interval averages directly from `long`
+    # Assumptions: `long` has columns [id_col, "Depth_in", "PSI"]
+    per_point_df = (
+        long[long["Depth_in"].between(0, 3)].groupby(id_col)["PSI"].mean()
+            .rename("PSI_avg_0–3 in").to_frame()
+        .join(
+            long[long["Depth_in"].between(4, 7)].groupby(id_col)["PSI"].mean()
+                .rename("PSI_avg_4–7 in")
+        )
+        .join(
+            long[long["Depth_in"].between(8, 11)].groupby(id_col)["PSI"].mean()
+                .rename("PSI_avg_8–11 in")
+        )
+        .reset_index()
+        .sort_values(id_col, kind="stable")
+    )
+
+    st.dataframe(per_point_df, use_container_width=True)
+
+    # CSV download
+    per_point_csv = per_point_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download interval averages (CSV)",
+        data=per_point_csv,
+        file_name="interval_averages.csv",
+        mime="text/csv",
+    )
 
 
     # Depth Explorer (by the 3 intervals)
