@@ -31,6 +31,8 @@ FIELD_INFO_FONT_SIZE = 18  # change this number to make field info text bigger/s
 
 PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
+BAR_COLOR = "#D2B48C"  # tan bar color for 'Average PSI by Interval'
+
 def psi_band(psi: float) -> str:
     if psi <= PSI_THRESHOLDS["low"]:
         return "low"
@@ -44,6 +46,15 @@ def band_rgb_tuple(psi: float):
 def band_hex(psi: float):
     r, g, b = band_rgb_tuple(psi)
     return f"#{r:02x}{g:02x}{b:02x}"
+    
+# --- small helper for colored percentage rows ---
+def metric_row(label: str, value_text: str, color_hex: str):
+    st.markdown(f"<div style='font-size:12px;color:gray;margin-bottom:2px;'>{label}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='font-size:20px;font-weight:700;color:{color_hex};margin-bottom:10px;'>{value_text}</div>",
+        unsafe_allow_html=True
+    )
+
 
 # -------------------------
 # Helpers
@@ -270,7 +281,7 @@ with tabs[0]:
     with c1:
         st.subheader("Field Average by Interval")
         fig_rep = px.bar(field_avg, x="Interval", y="PSI_mean", text="PSI_mean", title="Average PSI by Interval (All Points)")
-        fig_rep.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+        fig_rep.update_traces(texttemplate="%{text:.1f}", textposition="outside", marker_color=BAR_COLOR, opacity=0.95)
         fig_rep.add_hline(y=PSI_THRESHOLDS["low"],      line_dash="dash", line_color=PSI_COLORS_HEX["low"])
         fig_rep.add_hline(y=PSI_THRESHOLDS["moderate"], line_dash="dash", line_color=PSI_COLORS_HEX["moderate"])
         fig_rep.add_hline(y=PSI_THRESHOLDS["high"],     line_dash="dash", line_color=PSI_COLORS_HEX["high"])
