@@ -27,7 +27,7 @@ PSI_COLORS = {
     "high": (211, 47, 47),      # red
 }
 
-FIELD_INFO_FONT_SIZE = 10  # change this number to make field info text bigger/smaller
+FIELD_INFO_FONT_SIZE = 14  # change this number to make field info text bigger/smaller
 
 PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
@@ -226,11 +226,15 @@ with tabs[0]:
         unsafe_allow_html=True
         )
     with c_fi3:
-        st.caption("# of collected compaction points")
+        st.markdown(
+        "<p style='font-size:12px; color:gray;'># of collected compaction points</p>",
+        unsafe_allow_html=True
+        )
         st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{num_points:,}</p>",
         unsafe_allow_html=True
         )
+
 
 
     st.divider()
