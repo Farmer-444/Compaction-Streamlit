@@ -31,6 +31,15 @@ FIELD_INFO_FONT_SIZE = 18  # change this number to make field info text bigger/s
 
 PSI_COLORS_HEX = {"low": "#2E7D32", "moderate": "#FBC02D", "high": "#D32F2F"}
 
+# Colors for the overall rating text
+RATING_COLOR = {
+    "Low": PSI_COLORS_HEX["low"],          # green
+    "Moderate": PSI_COLORS_HEX["moderate"],# amber
+    "High": PSI_COLORS_HEX["high"],        # red
+    "Severe": "#8B0000",                   # dark red
+}
+
+
 BAR_COLOR = "#D2B48C"  # tan bar color for 'Average PSI by Interval'
 
 def psi_band(psi: float) -> str:
@@ -291,7 +300,13 @@ with tabs[0]:
         metric_row(f"% points >{PSI_THRESHOLDS['moderate']} PSI (0–11)", f"{exceed_mod:.1f}%", PSI_COLORS_HEX["moderate"])
         metric_row(f"% points >{PSI_THRESHOLDS['high']} PSI (0–11)",    f"{exceed_high:.1f}%", PSI_COLORS_HEX["high"])
 
-        st.metric("Overall Compaction Rating", rating)
+        # Colored Overall Rating
+        st.markdown("<div style='font-size:12px;color:gray;margin-top:8px;'>Overall Compaction Rating</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='font-size:32px;font-weight:800;color:{RATING_COLOR.get(rating, 'white')};'>{rating}</div>",
+        unsafe_allow_html=True
+        )
+
 
 
     with c1:
