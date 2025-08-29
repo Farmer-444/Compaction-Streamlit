@@ -402,7 +402,7 @@ with exp_interval:
     bands = segment_colorline(ps, zs, LOW, HIGH)
 
     fig_line = go.Figure()
-    colors = {"low": PSI_COLORS_HEX["low"],
+    band_colors = {"low": PSI_COLORS_HEX["low"],
           "moderate": PSI_COLORS_HEX["moderate"],
           "high": PSI_COLORS_HEX["high"]}
 
@@ -410,7 +410,7 @@ with exp_interval:
         fig_line.add_trace(go.Scatter(
             x=bands[name]["x"], y=bands[name]["y"],
             mode="lines+markers",
-            line=dict(color=colors[name], width=3),
+            line=dict(color=band_colors[name], width=3),
             marker=dict(size=6),
             name=name.capitalize(),
             hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>"
@@ -418,8 +418,8 @@ with exp_interval:
 
     fig_line.update_yaxes(autorange="reversed", title="Depth (in)")
     fig_line.update_xaxes(title="PSI")
-    fig_line.add_vline(x=LOW,  line_dash="dash", line_color=colors["moderate"])
-    fig_line.add_vline(x=HIGH, line_dash="dash", line_color=colors["high"])
+    fig_line.add_vline(x=LOW,  line_dash="dash", line_color=band_colors["moderate"])
+    fig_line.add_vline(x=HIGH, line_dash="dash", line_color=band_colors["high"])
     fig_line.update_layout(title=f"Point {chosen_point} — PSI vs Depth")
 
     st.plotly_chart(fig_line, use_container_width=True)
