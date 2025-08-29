@@ -319,16 +319,27 @@ with tabs[0]:
         st.plotly_chart(fig_rep, use_container_width=True)
 
     # Interval Averages per Point
-    st.subheader("Interval Averages per Point")
-    st.dataframe(avg_df, use_container_width=True)
-    st.download_button("⬇️ Download interval averages (CSV)", data=avg_df.to_csv(index=False).encode("utf-8"),
-                       file_name="interval_averages.csv", mime="text/csv")
+    with st.expander("Interval Averages per Point", expanded=False):
+        st.subheader("Interval Averages per Point")
+    # (keep your same table + download code, just indented)
+        st.dataframe(per_point_df, use_container_width=True)  # <-- your variable name here
+        st.download_button("⬇️ Download interval averages (CSV)", data=per_point_csv, file_name="interval_averages.csv", mime="text/csv")  # <-- your existing download line
+
 
     # Depth Explorer (by the 3 intervals)
-    st.subheader("Depth Explorer (by interval)")
-    chosen_interval = st.selectbox("Choose interval", list(intervals.keys()), index=0)
-    lo, hi = intervals[chosen_interval]
-    sel_long = long[long["Depth_in"].between(lo, hi)].copy()
+  with st.expander("Depth Explorer (by interval)", expanded=False):
+        st.subheader("Depth Explorer (by interval)")
+        # (keep your same controls + tables, just indented)
+        depth_choice = st.selectbox("Choose interval", ["0–3 in", "4–7 in", "8–11 in"], index=0)  # <-- keep your list/index if different
+
+        # your existing summary table for the chosen interval
+        st.dataframe(interval_summary_df, use_container_width=True)  # <-- your variable
+
+        # your existing per-point stats for the chosen interval
+        st.dataframe(interval_point_stats_df, use_container_width=True)  # <-- your variable
+
+        # (if you had a download button here, keep it and indent it)
+
 
     left, right = st.columns(2)
     with left:
