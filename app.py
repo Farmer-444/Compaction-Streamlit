@@ -327,16 +327,16 @@ with tabs[0]:
 
 
     # Depth Explorer (by the 3 intervals)
-  with st.expander("Depth Explorer (by interval)", expanded=False):
-    st.subheader("Depth Explorer (by interval)")
+    with st.expander("Depth Explorer (by interval)", expanded=False):
+        st.subheader("Depth Explorer (by interval)")
     # (keep your same controls + tables, just indented)
-    depth_choice = st.selectbox("Choose interval", ["0–3 in", "4–7 in", "8–11 in"], index=0)  # <-- keep your list/index if different
+        depth_choice = st.selectbox("Choose interval", ["0–3 in", "4–7 in", "8–11 in"], index=0)  # <-- keep your list/index if different
 
     # your existing summary table for the chosen interval
-    st.dataframe(interval_summary_df, use_container_width=True)  # <-- your variable
+        st.dataframe(interval_summary_df, use_container_width=True)  # <-- your variable
 
     # your existing per-point stats for the chosen interval
-    st.dataframe(interval_point_stats_df, use_container_width=True)  # <-- your variable
+        st.dataframe(interval_point_stats_df, use_container_width=True)  # <-- your variable
 
         # (if you had a download button here, keep it and indent it)
 
