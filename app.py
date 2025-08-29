@@ -409,15 +409,37 @@ with exp_depth:
     fig_line.update_layout(xaxis_title="Depth (in)", yaxis_title="PSI")
     st.plotly_chart(fig_line, use_container_width=True)
 
-    # Export
+    # --- Export ---
     st.subheader("Export")
-    st.download_button("⬇️ Download long/tidy data (CSV)",
-                       data=long.to_csv(index=False).encode("utf-8"),
-                       file_name="compaction_long.csv", mime="text/csv")
-    st.download_button(f"⬇️ Download selection ({depth_choice}) (CSV)",
-                       data=sel_long.to_csv(index=False).encode("utf-8"),
-                       file_name=f"compaction_{depth_choice.replace(' ','').replace('–','-')}.csv",
-                       mime="text/csv")
+
+    # Always-available long/tidy data
+    st.download_button(
+        "⬇️ Download long/tidy data (CSV)",
+        data=long.to_csv(index=False).encode("utf-8"),
+        file_name="compaction_long.csv",
+        mime="text/csv",
+    )
+
+    # Recreate the selected interval based on the saved choice
+    interval_options = {
+        "0–3 in":  (0, 3),
+        "4–7 in":  (4, 7),
+        "8–11 in": (8, 11),
+    }
+    choice = st.session_state.get("depth_choice", "0–3 in")  # fallback if expander not opened yet
+    lo, hi = interval_options[choice]
+    sel_long = long[long["Depth_in"].between(lo, hi)]
+
+    # Clean filename from choice (remove spaces, normalize en-dash)
+    clean = choice.replace(" ", "").replace("–", "-")
+
+    st.download_button(
+        f"⬇️ Download selection ({choice}) (CSV)",
+        data=sel_long.to_csv(index=False).encode("utf-8"),
+        file_name=f"compaction_{clean}.csv",
+        mime="text/csv",
+    )
+
 
 # -------------------------
 # TAB 2: MAP (Satellite + IDW interpolation)
