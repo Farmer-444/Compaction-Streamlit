@@ -274,17 +274,25 @@ with tabs[0]:
             return "Moderate"
         return "Low"
 
-    rating = overall_rating(exceed_high)
+    rating = overall_rating(exceed_higTHIS IS WHh)
 
 
     c1, c2 = st.columns([2, 1])
     with c2:
-        def safe_fmt(v): return f"{v:.0f}" if pd.notna(v) else "—"
+        def safe_fmt(v): 
+            return f"{v:.0f}" if pd.notna(v) else "–"
+
         st.metric("Highest PSI (0–3 in)", safe_fmt(top_df.loc[top_df["Interval"]=="0–3 in","Highest_PSI"].values[0]))
         st.metric("Highest PSI (4–7 in)", safe_fmt(top_df.loc[top_df["Interval"]=="4–7 in","Highest_PSI"].values[0]))
         st.metric("Highest PSI (8–11 in)", safe_fmt(top_df.loc[top_df["Interval"]=="8–11 in","Highest_PSI"].values[0]))
-        st.metric(f"% points >{PSI_THRESHOLDS['high']} PSI (0–11)", f"{exceed:.1f}%")
+
+    # New percentage metrics
+        metric_row(f"% points ≤{PSI_THRESHOLDS['moderate']} PSI (0–11)", f"{below_mod:.1f}%",  PSI_COLORS_HEX["low"])
+        metric_row(f"% points >{PSI_THRESHOLDS['moderate']} PSI (0–11)", f"{exceed_mod:.1f}%", PSI_COLORS_HEX["moderate"])
+        metric_row(f"% points >{PSI_THRESHOLDS['high']} PSI (0–11)",    f"{exceed_high:.1f}%", PSI_COLORS_HEX["high"])
+
         st.metric("Overall Compaction Rating", rating)
+
 
     with c1:
         st.subheader("Field Average by Interval")
