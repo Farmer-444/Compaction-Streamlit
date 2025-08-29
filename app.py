@@ -316,7 +316,117 @@ with tabs[0]:
         fig_rep.add_hline(y=PSI_THRESHOLDS["low"],      line_dash="dash", line_color=PSI_COLORS_HEX["low"])
         fig_rep.add_hline(y=PSI_THRESHOLDS["moderate"], line_dash="dash", line_color=PSI_COLORS_HEX["moderate"])
         fig_rep.add_hline(y=PSI_THRESHOLDS["high"],     line_dash="dash", line_color=PSI_COLORS_HEX["high"])
-        st.plotly_chart(fig_rep, use_container_width=True)
+        st.plotly_chart(fig_rep, use_container_width=True) 
+
+# --- Depth profile (single point) ---
+st.subheader("Depth profile (single point)")
+
+# Pick a point (from your long-format table)
+point_choices = sorted(long[id_col].dropna().unique().tolist())
+chosen_point = st.selectbox("Point", options=point_choices, index=0, key="profile_point")
+
+# All depth readings for that point (0–11 in expected)
+profile_df = (
+    long[long[id_col] == chosen_point]
+    .sort_values("Depth_in", kind="stable")
+)
+
+st.caption(f"Records for point {chosen_point}: {profile_df.shape[0]} depth rows")
+
+if profile_df.shape[0] < 2:
+    st.info("Not enough depth readings to draw a profile line for this point.")
+else:
+    import numpy as np
+    import plotly.graph_objects as go
+
+    LOW  = PSI_THRESHOLDS["moderate"]   # 200
+    HIGH = PSI_THRESHOLDS["high"]       # 300
+
+    ps = profile_df["PSI"].to_numpy()
+    zs = profile_df["Depth_in"].to_numpy()
+
+    def segment_colorline(ps, zs, low, high):
+        """
+        Split each segment at PSI==low and PSI==high.
+        Return x/y arrays (with NaNs as breaks) for each band: low/moderate/high.
+        """
+        bands = {"low": {"x": [], "y": []},
+                 "moderate": {"x": [], "y": []},
+                 "high": {"x": [], "y": []}}
+        n = len(ps)
+        for i in range(n - 1):
+            p1, p2 = ps[i], ps[i+1]
+            z1, z2 = zs[i], zs[i+1]
+            pts = [(p1, z1)]
+
+            def add_cross(thr):
+                # add exact crossing if we straddle the threshold
+                if (p1 - thr) * (p2 - thr) < 0:
+                    t = (thr - p1) / (p2 - p1)
+                    zt = z1 + t * (z2 - z1)
+                    pts.append((thr, zt))
+
+            add_cross(low)
+            add_cross(high)
+            pts.append((p2, z2))
+
+            # create sub-segments
+            for j in range(len(pts) - 1):
+                pa, za = pts[j]
+                pb, zb = pts[j+1]
+                mid = 0.5 * (pa + pb)
+                if mid <= low:
+                    band = "low"
+                elif mid <= high:
+                    band = "moderate"
+                else:
+                    band = "high"
+                bands[band]["x"].extend([pa, pb, np.nan])
+                bands[band]["y"].extend([za, zb, np.nan])
+
+        return bands
+
+    bands = segment_colorline(ps, zs, LOW, HIGH)
+
+    fig_prof = go.Figure()
+
+    # Use a name that doesn't clash with matplotlib.colors used later
+    band_colors = {
+        "low": PSI_COLORS_HEX["low"],
+        "moderate": PSI_COLORS_HEX["moderate"],
+        "high": PSI_COLORS_HEX["high"],
+    }
+
+    # Add one trace per band (PSI on X, Depth on Y)
+    for name in ["low", "moderate", "high"]:
+        fig_prof.add_trace(
+            go.Scatter(
+                x=bands[name]["x"],
+                y=bands[name]["y"],
+                mode="lines+markers",
+                line=dict(color=band_colors[name], width=3),
+                marker=dict(size=6),
+                name=name.capitalize(),
+                hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>",
+            )
+        )
+
+    # Depth axis: 0" at top, deeper downwards
+    fig_prof.update_yaxes(autorange="reversed", title="Depth (in)")
+    fig_prof.update_xaxes(title="PSI")
+
+    # Reference lines at 200 and 300 PSI
+    fig_prof.add_vline(x=LOW,  line_dash="dash", line_color=band_colors["moderate"])
+    fig_prof.add_vline(x=HIGH, line_dash="dash", line_color=band_colors["high"])
+
+    fig_prof.update_layout(
+        title=f"Point {chosen_point} — PSI vs Depth",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=50, b=10),
+    )
+
+    st.plotly_chart(fig_prof, use_container_width=True)
+
 
     # Interval Averages per Point
     # --- Interval Averages per Point (collapsible) ---
@@ -351,79 +461,6 @@ with exp_interval:
         file_name="interval_averages.csv",
         mime="text/csv",
     )
-
-# Per-point depth profile (still useful)
-    st.subheader("Depth profile (single point)")
-    point_choices = sorted(long[id_col].unique().tolist())
-    chosen_point = st.selectbox("Point", options=point_choices, index=0)
-    prof = long[long[id_col] == chosen_point].sort_values("Depth_in")
-    
-    import plotly.graph_objects as go
-    import numpy as np
-
-# thresholds
-    LOW  = PSI_THRESHOLDS["moderate"]   # 200
-    HIGH = PSI_THRESHOLDS["high"]       # 300
-
-    prof = prof.sort_values("Depth_in")
-    ps = prof["PSI"].to_numpy()
-    zs = prof["Depth_in"].to_numpy()
-
-    def segment_colorline(ps, zs, low, high):
-        bands = {"low": {"x": [], "y": []},
-             "moderate": {"x": [], "y": []},
-             "high": {"x": [], "y": []}}
-        n = len(ps)
-        for i in range(n - 1):
-            p1, p2 = ps[i], ps[i+1]
-            z1, z2 = zs[i], zs[i+1]
-            pts = [(p1, z1)]
-            def add_cross(thr):
-                if (p1 - thr) * (p2 - thr) < 0:
-                    t = (thr - p1) / (p2 - p1)
-                    zt = z1 + t * (z2 - z1)
-                    pts.append((thr, zt))
-            add_cross(low)
-            add_cross(high)
-            pts.append((p2, z2))
-            for j in range(len(pts) - 1):
-                pa, za = pts[j]; pb, zb = pts[j+1]
-                mid = 0.5 * (pa + pb)
-                if mid <= low:
-                    band = "low"
-                elif mid <= high:
-                    band = "moderate"
-                else:
-                    band = "high"
-                bands[band]["x"].extend([pa, pb, np.nan])
-                bands[band]["y"].extend([za, zb, np.nan])
-            return bands
-
-    bands = segment_colorline(ps, zs, LOW, HIGH)
-
-    fig_line = go.Figure()
-    band_colors = {"low": PSI_COLORS_HEX["low"],
-          "moderate": PSI_COLORS_HEX["moderate"],
-          "high": PSI_COLORS_HEX["high"]}
-
-    for name in ["low", "moderate", "high"]:
-        fig_line.add_trace(go.Scatter(
-            x=bands[name]["x"], y=bands[name]["y"],
-            mode="lines+markers",
-            line=dict(color=band_colors[name], width=3),
-            marker=dict(size=6),
-            name=name.capitalize(),
-            hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>"
-        ))
-
-    fig_line.update_yaxes(autorange="reversed", title="Depth (in)")
-    fig_line.update_xaxes(title="PSI")
-    fig_line.add_vline(x=LOW,  line_dash="dash", line_color=band_colors["moderate"])
-    fig_line.add_vline(x=HIGH, line_dash="dash", line_color=band_colors["high"])
-    fig_line.update_layout(title=f"Point {chosen_point} — PSI vs Depth")
-
-    st.plotly_chart(fig_line, use_container_width=True)
-
 
     # Depth Explorer (by the 3 intervals)
     # --- Depth Explorer (by interval) (collapsible) ---
