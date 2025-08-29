@@ -214,20 +214,20 @@ with tabs[0]:
 
     c_fi1, c_fi2, c_fi3 = st.columns([1.2, 1.2, 1])
     with c_fi1:
-        st.caption("Field name")
+        st.caption("Field Name")
         st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{field_name}</p>",
         unsafe_allow_html=True
         )
     with c_fi2:
-        st.caption("Date of sampling")
+        st.caption("Date of Sampling")
         st.markdown(
         f"<p style='font-size:{FIELD_INFO_FONT_SIZE}px;'>{sample_date.strftime('%Y-%m-%d')}</p>",
         unsafe_allow_html=True
         )
     with c_fi3:
         st.markdown(
-        "<p style='font-size:12px; color:gray;'># of collected compaction points</p>",
+        "<p style='font-size:14px; color:gray;'># Of Collected Compaction Points</p>",
         unsafe_allow_html=True
         )
         st.markdown(
