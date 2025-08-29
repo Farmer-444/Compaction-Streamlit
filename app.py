@@ -354,28 +354,50 @@ with exp_interval:
 
 
     # Depth Explorer (by the 3 intervals)
-    with st.expander("Depth Explorer (by interval)", expanded=False):
-        st.subheader("Depth Explorer (by interval)")
-    # (keep your same controls + tables, just indented)
-        depth_choice = st.selectbox("Choose interval", ["0–3 in", "4–7 in", "8–11 in"], index=0)  # <-- keep your list/index if different
+    # --- Depth Explorer (by interval) (collapsible) ---
+exp_depth = st.expander("Depth Explorer (by interval)", expanded=False)
+with exp_depth:
+    st.subheader("Depth Explorer (by interval)")
 
-    # your existing summary table for the chosen interval
-        st.dataframe(interval_summary_df, use_container_width=True)  # <-- your variable
+    # Choose one of the three averaged depth bands
+    interval_options = {
+        "0–3 in":  (0, 3),
+        "4–7 in":  (4, 7),
+        "8–11 in": (8, 11),
+    }
+    depth_choice = st.selectbox("Choose interval", list(interval_options.keys()), index=0)
+    lo, hi = interval_options[depth_choice]
 
-    # your existing per-point stats for the chosen interval
-        st.dataframe(interval_point_stats_df, use_container_width=True)  # <-- your variable
+    # Filter to the chosen interval (assumes long has columns: [id_col, "Depth_in", "PSI"])
+    sub = long[long["Depth_in"].between(lo, hi)]
 
-        # (if you had a download button here, keep it and indent it)
+    # Overall summary for that interval
+    summary_df = (
+        sub["PSI"]
+        .agg(["count", "mean", "median", "std", "min", "max"])
+        .to_frame()
+        .T
+    )
+    st.dataframe(summary_df, use_container_width=True)
 
+    # Per-point stats for that interval
+    by_point_df = (
+        sub.groupby(id_col)["PSI"]
+        .agg(["count", "mean", "median", "std", "min", "max"])
+        .reset_index()
+        .sort_values(id_col, kind="stable")
+    )
+    st.dataframe(by_point_df, use_container_width=True)
 
-    left, right = st.columns(2)
-    with left:
-        overall = sel_long["PSI"].agg(["count","mean","median","std","min","max"]).to_frame().T
-        st.caption(chosen_interval)
-        st.dataframe(overall, use_container_width=True)
-    with right:
-        by_point = sel_long.groupby(id_col)["PSI"].agg(["count","mean","median","std","min","max"]).reset_index()
-        st.dataframe(by_point, use_container_width=True)
+    # Optional download
+    # interval_csv = by_point_df.to_csv(index=False).encode("utf-8")
+    # st.download_button(
+    #     f"⬇️ Download {depth_choice} table (CSV)",
+    #     data=interval_csv,
+    #     file_name=f"depth_{lo}-{hi}_stats.csv",
+    #     mime="text/csv",
+    # )
+
 
     # Per-point depth profile (still useful)
     st.subheader("Depth profile (single point)")
