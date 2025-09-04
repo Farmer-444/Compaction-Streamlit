@@ -388,6 +388,76 @@ with tabs[0]:
 
         bands = segment_colorline(ps, zs, LOW, HIGH)
 
+       # --- Depth profile (single point) ---
+    st.subheader("Depth profile (single point)")
+
+    # Pick a point (from your long-format table)
+    point_choices = sorted(long[id_col].dropna().unique().tolist())
+    chosen_point = st.selectbox("Point", options=point_choices, index=0, key="profile_point")
+
+    # All depth readings for that point (0–11 in expected)
+    profile_df = (
+        long[long[id_col] == chosen_point]
+        .sort_values("Depth_in", kind="stable")
+    )
+
+    st.caption(f"Records for point {chosen_point}: {profile_df.shape[0]} depth rows")
+
+    if profile_df.shape[0] < 2:
+        st.info("Not enough depth readings to draw a profile line for this point.")
+        else:
+        import numpy as np
+        import plotly.graph_objects as go
+
+        LOW  = PSI_THRESHOLDS["moderate"]   # 200
+        HIGH = PSI_THRESHOLDS["high"]       # 300
+
+        ps = profile_df["PSI"].to_numpy()
+        zs = profile_df["Depth_in"].to_numpy()
+
+        def segment_colorline(ps, zs, low, high):
+            """
+            Split each segment at PSI==low and PSI==high.
+            Return x/y arrays (with NaNs as breaks) for each band: low/moderate/high.
+            """
+            bands = {"low": {"x": [], "y": []},
+                     "moderate": {"x": [], "y": []},
+                     "high": {"x": [], "y": []}}
+            n = len(ps)
+            for i in range(n - 1):
+                p1, p2 = ps[i], ps[i+1]
+                z1, z2 = zs[i], zs[i+1]
+                pts = [(p1, z1)]
+
+                def add_cross(thr):
+                    # add exact crossing if we straddle the threshold
+                    if (p1 - thr) * (p2 - thr) < 0:
+                        t = (thr - p1) / (p2 - p1)
+                        zt = z1 + t * (z2 - z1)
+                        pts.append((thr, zt))
+
+                add_cross(low)
+                add_cross(high)
+                pts.append((p2, z2))
+
+                # create sub-segments
+                for j in range(len(pts) - 1):
+                    pa, za = pts[j]
+                    pb, zb = pts[j+1]
+                    mid = 0.5 * (pa + pb)
+                    if mid <= low:
+                        band = "low"
+                    elif mid <= high:
+                        band = "moderate"
+                    else:
+                        band = "high"
+                    bands[band]["x"].extend([pa, pb, np.nan])
+                    bands[band]["y"].extend([za, zb, np.nan])
+
+            return bands
+
+        bands = segment_colorline(ps, zs, LOW, HIGH)
+
         fig_prof = go.Figure()
 
         # Use a name that doesn't clash with matplotlib.colors used later
@@ -426,6 +496,7 @@ with tabs[0]:
         )
 
         st.plotly_chart(fig_prof, use_container_width=True)
+
 
 
     # Interval Averages per Point
