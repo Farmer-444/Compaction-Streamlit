@@ -239,6 +239,67 @@ def reshape_long(df: pd.DataFrame, id_col: str, lat_col: Optional[str], lon_col:
     long["Depth_cm"] = long["Depth_in"] * 2.54
     return long, sorted(long["Depth_in"].unique().tolist())
 
+# --- Helpers for map drawing & clipping -------------------------------------
+
+def point_in_poly(xs, ys, poly):
+    """
+    Ray-casting point-in-polygon test for many points.
+    xs, ys: arrays of point coords (lon, lat)
+    poly: list of (lon, lat) tuples defining a closed polygon (last point may repeat first)
+    Returns boolean mask: True inside, False outside.
+    """
+    import numpy as np
+    x = xs.reshape(-1)
+    y = ys.reshape(-1)
+    n = len(poly)
+    px = np.array([p[0] for p in poly])
+    py = np.array([p[1] for p in poly])
+
+    inside = np.zeros_like(x, dtype=bool)
+    for i in range(n):
+        j = (i - 1) % n
+        xi, yi = px[i], py[i]
+        xj, yj = px[j], py[j]
+        # Check edges crossing
+        intersect = ((yi > y) != (yj > y)) & (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi)
+        inside ^= intersect
+    return inside.reshape(xs.shape)
+
+def extract_drawn_polygon(folium_return):
+    """
+    Get the last drawn polygon (if any) from st_folium return dict.
+    Returns list of (lon, lat) tuples or None.
+    """
+    feat = None
+    # Try last_active_drawing
+    if folium_return and folium_return.get("last_active_drawing"):
+        feat = folium_return["last_active_drawing"]
+    # Fallback: check all_drawings
+    if feat is None and folium_return and folium_return.get("all_drawings"):
+        if len(folium_return["all_drawings"]) > 0:
+            feat = folium_return["all_drawings"][-1]
+
+    if not feat:
+        return None
+
+    if feat["type"] == "Feature":
+        geom = feat.get("geometry", {})
+    else:
+        geom = feat  # sometimes geometry is at top level
+
+    if geom.get("type") != "Polygon":
+        return None
+
+    # GeoJSON coords: [ [ [lon, lat], ... ] ]  (first ring)
+    ring = geom["coordinates"][0]
+    # Convert to tuples
+    poly = [(float(lon), float(lat)) for lon, lat in ring]
+    # Ensure closed polygon
+    if poly[0] != poly[-1]:
+        poly.append(poly[0])
+    return poly
+
+
 # -------------------------
 # Tabs (Report View + Map)
 # -------------------------
@@ -551,90 +612,139 @@ with exp_depth:
         mime="text/csv",
     )
 
-
 # -------------------------
-# TAB 2: MAP (Satellite + IDW interpolation)
+# TAB 2: MAP (Satellite + Interpolation)
 # -------------------------
 with tabs[1]:
     st.subheader("Compaction Map (Satellite + Interpolation)")
-    if lat_col and lon_col:
-        map_interval = st.selectbox("Depth interval", options=list(intervals.keys()), index=0)
-        lo, hi = intervals[map_interval]
-        base = long[long["Depth_in"].between(lo, hi)]
-        avg_map = (
-            base.groupby(id_col)
-            .agg({"PSI":"mean", lat_col:"first", lon_col:"first"})
-            .reset_index()
-            .rename(columns={lat_col:"lat", lon_col:"lon"})
-        )
 
-        if avg_map.empty:
-            st.info("No rows available for the selected interval.")
-        else:
-            # Build Folium map with Esri World Imagery
-            center = [float(avg_map["lat"].mean()), float(avg_map["lon"].mean())]
-            m = folium.Map(location=center, zoom_start=15, tiles=None)
-            folium.TileLayer(
-                tiles="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                attr="Esri World Imagery", name="Satellite"
-            ).add_to(m)
-
-            # Grid bounds
-            lat_min, lat_max = avg_map["lat"].min(), avg_map["lat"].max()
-            lon_min, lon_max = avg_map["lon"].min(), avg_map["lon"].max()
-            pad_lat = (lat_max - lat_min) * 0.1 or 0.0005
-            pad_lon = (lon_max - lon_min) * 0.1 or 0.0005
-            lat_lin = np.linspace(lat_min - pad_lat, lat_max + pad_lat, 150)
-            lon_lin = np.linspace(lon_min - pad_lon, lon_max + pad_lon, 150)
-            grid_lon, grid_lat = np.meshgrid(lon_lin, lat_lin)
-
-            # IDW interpolation (power=2)
-            gx = grid_lon.flatten(); gy = grid_lat.flatten()
-            xs = avg_map["lon"].to_numpy(); ys = avg_map["lat"].to_numpy(); zs = avg_map["PSI"].to_numpy()
-            d2 = (gx[:,None]-xs[None,:])**2 + (gy[:,None]-ys[None,:])**2
-            d2[d2 == 0] = 1e-12
-            w = 1.0 / d2
-            z_idw = (w * zs[None,:]).sum(axis=1) / w.sum(axis=1)
-            Z = z_idw.reshape(grid_lat.shape)
-
-            # Colorize to PNG bytes
-            norm = colors.Normalize(vmin=max(0, float(np.nanmin(Z))), vmax=float(np.nanmax(Z)))
-            cmap = colors.LinearSegmentedColormap.from_list("gyr", ["#2E7D32", "#FBC02D", "#D32F2F"])
-            rgba = cmap(norm(Z), bytes=True)  # (H,W,4)
-            img = Image.fromarray(rgba, mode="RGBA")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            png_bytes = buf.getvalue()
-
-            # Convert PNG bytes -> data URL string (Folium needs a serializable value)
-            b64 = base64.b64encode(png_bytes).decode("ascii")
-            data_url = f"data:image/png;base64,{b64}"
-
-            # Overlay (using data URL)
-            bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
-            folium.raster_layers.ImageOverlay(
-                image=data_url,          # <-- pass data URL, not bytes
-                bounds=bounds,
-                opacity=0.45,
-                name=f"IDW {map_interval}",
-                origin="upper",
-            ).add_to(m)
-
-
-            # Point markers
-            for _, r in avg_map.iterrows():
-                folium.CircleMarker(
-                    location=[float(r["lat"]), float(r["lon"])],
-                    radius=4,
-                    weight=1,
-                    color="#000000",
-                    fill=True,
-                    fill_opacity=0.9,
-                    fill_color=band_hex(float(r["PSI"])),
-                    tooltip=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI",
-                ).add_to(m)
-
-            folium.LayerControl(collapsed=False).add_to(m)
-            st_folium(m, width=None, height=600)
-    else:
+    if not (lat_col and lon_col):
         st.info("Latitude/Longitude not provided — map disabled.")
+        st.stop()
+
+    # UI controls
+    map_interval = st.selectbox("Depth interval", options=list(intervals.keys()), index=0)
+    idw_power = st.slider("IDW power (p)", min_value=1, max_value=4, value=2, help="Higher p = more local influence")
+    overlay_opacity = st.slider("Overlay opacity", min_value=0.1, max_value=0.9, value=0.45, step=0.05)
+    marker_size = st.slider("Point marker size", min_value=1, max_value=6, value=2)
+
+    lo, hi = intervals[map_interval]
+    base = long[long["Depth_in"].between(lo, hi)]
+    avg_map = (
+        base.groupby(id_col)
+        .agg({"PSI": "mean", lat_col: "first", lon_col: "first"})
+        .reset_index()
+        .rename(columns={lat_col: "lat", lon_col: "lon"})
+    )
+
+    if avg_map.empty:
+        st.info("No rows available for the selected interval.")
+        st.stop()
+
+    # If the user has already drawn a polygon earlier, reuse it from session_state
+    aoi_poly = st.session_state.get("aoi_poly")  # list of (lon, lat) or None
+
+    # --- Build Folium map ---
+    center = [float(avg_map["lat"].mean()), float(avg_map["lon"].mean())]
+    m = folium.Map(location=center, zoom_start=16, tiles=None)
+    folium.TileLayer(
+        tiles="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Imagery",
+        name="Satellite",
+        control=True,
+    ).add_to(m)
+
+    # Add Draw controls so the user can sketch the field boundary (polygon)
+    from folium.plugins import Draw
+    Draw(
+        draw_options={
+            "polygon": True,
+            "polyline": False,
+            "rectangle": False,
+            "circle": False,
+            "circlemarker": False,
+            "marker": False,
+        },
+        edit_options={"edit": True, "remove": True},
+    ).add_to(m)
+
+    # --- Build interpolation grid ---
+    lat_min, lat_max = avg_map["lat"].min(), avg_map["lat"].max()
+    lon_min, lon_max = avg_map["lon"].min(), avg_map["lon"].max()
+    pad_lat = (lat_max - lat_min) * 0.10 or 0.0005
+    pad_lon = (lon_max - lon_min) * 0.10 or 0.0005
+
+    lat_lin = np.linspace(lat_min - pad_lat, lat_max + pad_lat, 150)
+    lon_lin = np.linspace(lon_min - pad_lon, lon_max + pad_lon, 150)
+    grid_lon, grid_lat = np.meshgrid(lon_lin, lat_lin)
+
+    # --- IDW (with adjustable power) ---
+    gx = grid_lon.flatten()
+    gy = grid_lat.flatten()
+    xs = avg_map["lon"].to_numpy()
+    ys = avg_map["lat"].to_numpy()
+    zs = avg_map["PSI"].to_numpy()
+
+    # distances^2
+    d2 = (gx[:, None] - xs[None, :]) ** 2 + (gy[:, None] - ys[None, :]) ** 2
+    d2[d2 == 0] = 1e-12
+    # generic IDW with power p: weight = 1 / (distance^p)
+    # distance = sqrt(d2) => distance^p = d2^(p/2)
+    w = 1.0 / np.power(d2, idw_power / 2.0)
+    z_idw = (w * zs[None, :]).sum(axis=1) / w.sum(axis=1)
+    Z = z_idw.reshape(grid_lat.shape)
+
+    # --- Clip to user polygon, if any is stored in session ---
+    if aoi_poly:
+        mask = point_in_poly(grid_lon, grid_lat, aoi_poly)
+        Z = np.where(mask, Z, np.nan)
+
+    # --- Colorize to PNG bytes (same colors as the app’s thresholds) ---
+    vmin = max(0, float(np.nanmin(Z)))
+    vmax = float(np.nanmax(Z))
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+    cmap = colors.LinearSegmentedColormap.from_list("gyr", [PSI_COLORS_HEX["low"], PSI_COLORS_HEX["moderate"], PSI_COLORS_HEX["high"]])
+    rgba = cmap(norm(Z), bytes=True)  # (H, W, 4)
+    img = Image.fromarray(rgba, mode="RGBA")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    # Convert to data URL for Folium
+    b64 = base64.b64encode(png_bytes).decode("ascii")
+    data_url = f"data:image/png;base64,{b64}"
+
+    # Overlay (using data URL)
+    bounds = [[lat_lin[0], lon_lin[0]], [lat_lin[-1], lon_lin[-1]]]
+    folium.raster_layers.ImageOverlay(
+        image=data_url,
+        bounds=bounds,
+        opacity=overlay_opacity,
+        name=f"IDW {map_interval}",
+        origin="upper",
+    ).add_to(m)
+
+    # Point markers (smaller)
+    for _, r in avg_map.iterrows():
+        folium.CircleMarker(
+            location=[float(r["lat"]), float(r["lon"])],
+            radius=marker_size,
+            weight=1,
+            color="#000000",
+            fill=True,
+            fill_opacity=0.9,
+            fill_color=band_hex(float(r["PSI"])),
+            tooltip=f"{id_col}: {r[id_col]} | {r['PSI']:.0f} PSI",
+        ).add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+
+    # Render and capture any drawing from this run
+    mret = st_folium(m, width=None, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
+    # If user just drew/edited a polygon, store it for next render cycle
+    new_poly = extract_drawn_polygon(mret)
+    if new_poly:
+        st.session_state["aoi_poly"] = new_poly
+        st.info("Field boundary saved. The surface will be clipped to this polygon on the next update.")
+
