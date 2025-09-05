@@ -110,18 +110,21 @@ def make_profile_figure(profile_df: pd.DataFrame,
                 bands[key]["x"].extend([za, zb, np.nan])  # Depth on X
                 bands[key]["y"].extend([pa, pb, np.nan])  # PSI on Y
 
-    fig = go.Figure()
-    for key in ["low", "moderate", "high"]:
-        fig.add_trace(
-            go.Scatter(
-                x=bands[key]["x"], y=bands[key]["y"],
-                mode="lines+markers",
-                line=dict(color=colors_hex[key], width=3),
-                marker=dict(size=6),
-                name=key.capitalize(),
-                hovertemplate="Depth=%{x:.1f} in<br>PSI=%{y:.1f}<extra></extra>",
+       # Add traces for each band (always in legend, even if empty)
+        for name in ["low", "moderate", "high"]:
+            fig_prof.add_trace(
+                go.Scatter(
+                    x=bands[name]["x"] if bands[name]["x"] else [None],
+                    y=bands[name]["y"] if bands[name]["y"] else [None],
+                    mode="lines+markers",
+                    line=dict(color=band_colors[name], width=3),
+                    marker=dict(size=6),
+                    name=name.capitalize(),
+                    hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>",
+                    showlegend=True
+                )
             )
-        )
+
 
     fig.update_xaxes(title="Depth (in)")
     fig.update_yaxes(title="PSI")
