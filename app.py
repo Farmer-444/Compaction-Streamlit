@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import streamlit as st
 import plotly.graph_objects as go
 
+
+
 # Map + interpolation helpers
 import folium
 from streamlit_folium import st_folium
@@ -66,99 +68,98 @@ def metric_row(label: str, value_text: str, color_hex: str):
         unsafe_allow_html=True
     )
 # --- helper to draw the single-point profile: Depth on X, PSI on Y ---
-def make_profile_figure(profile_df: pd.DataFrame,
+
+def make_profile_figure(df: pd.DataFrame,
                         colors_hex: dict,
                         thresholds: dict) -> go.Figure:
     """
-    Build a PSI vs Depth chart, coloring each segment:
-    - <= thresholds['moderate'] : 'low'
-    - (thresholds['moderate'], thresholds['high']] : 'moderate'
-    - > thresholds['high'] : 'high'
-    Always shows Low/Moderate/High in legend.
+    Draw the depth profile with Depth on X and PSI on Y.
+    The line is color-segmented by PSI bands (<=low, <=high, >high).
+    Horizontal dashed lines at the PSI thresholds.
     """
-    LOW  = thresholds["moderate"]   # e.g., 200
-    HIGH = thresholds["high"]       # e.g., 300
+    # Arrays: depth (x) and psi (y)
+    z = df["Depth_in"].to_numpy(float)   # Depth (in)
+    p = df["PSI"].to_numpy(float)        # PSI
 
-    ps = profile_df["PSI"].to_numpy()
-    zs = profile_df["Depth_in"].to_numpy()
+    LOW  = thresholds["moderate"]        # e.g. 200
+    HIGH = thresholds["high"]            # e.g. 300
 
-    # Split each line segment at the threshold crossings so colors change exactly at 200/300.
-    def segment_colorline(ps, zs, low, high):
-        bands = {
-            "low": {"x": [], "y": []},
-            "moderate": {"x": [], "y": []},
-            "high": {"x": [], "y": []}
-        }
-        n = len(ps)
+    def split_segments(depth, psi, low_thr, high_thr):
+        # Build separate x/y streams for each band, inserting NaNs between sub-segments
+        bands = {"low": {"x": [], "y": []},
+                 "moderate": {"x": [], "y": []},
+                 "high": {"x": [], "y": []}}
+        n = len(psi)
         for i in range(n - 1):
-            p1, p2 = ps[i], ps[i+1]
-            z1, z2 = zs[i], zs[i+1]
-            pts = [(p1, z1)]
+            z1, z2 = depth[i], depth[i+1]
+            p1, p2 = psi[i],   psi[i+1]
+
+            pts = [(z1, p1)]  # (depth, psi)
 
             def add_cross(thr):
-                # If we straddle the threshold, insert the exact crossing
+                # If this segment crosses the threshold in PSI space, add split point
                 if (p1 - thr) * (p2 - thr) < 0:
                     t = (thr - p1) / (p2 - p1)
-                    zt = z1 + t * (z2 - z1)
-                    pts.append((thr, zt))
+                    zt = z1 + t * (z2 - z1)    # depth at crossing
+                    pts.append((zt, thr))
 
-            add_cross(low)
-            add_cross(high)
-            pts.append((p2, z2))
+            add_cross(low_thr)
+            add_cross(high_thr)
+            pts.append((z2, p2))
 
-            # Build sub-segments between successive points
-            for j in range(len(pts) - 1):
-                pa, za = pts[j]
-                pb, zb = pts[j+1]
-                mid = 0.5 * (pa + pb)
-                if mid <= low:
-                    band = "low"
-                elif mid <= high:
-                    band = "moderate"
+            # Ensure the split points are in depth order
+            pts.sort(key=lambda a: a[0])
+
+            for (za, pa), (zb, pb) in zip(pts[:-1], pts[1:]):
+                mid_psi = 0.5 * (pa + pb)
+                if mid_psi <= low_thr:
+                    name = "low"
+                elif mid_psi <= high_thr:
+                    name = "moderate"
                 else:
-                    band = "high"
-                bands[band]["x"].extend([pa, pb, np.nan])
-                bands[band]["y"].extend([za, zb, np.nan])
-
+                    name = "high"
+                bands[name]["x"].extend([za, zb, np.nan])
+                bands[name]["y"].extend([pa, pb, np.nan])
         return bands
 
-    bands = segment_colorline(ps, zs, LOW, HIGH)
+    bands = split_segments(z, p, LOW, HIGH)
 
     fig = go.Figure()
 
-    band_colors = {
-        "low": colors_hex["low"],
-        "moderate": colors_hex["moderate"],
-        "high": colors_hex["high"],
-    }
-
-    # Always add the three traces so the legend shows Low/Moderate/High
+    # Always show legend entries for all three bands
     for name in ["low", "moderate", "high"]:
-        xvals = bands[name]["x"] if bands[name]["x"] else [None]
-        yvals = bands[name]["y"] if bands[name]["y"] else [None]
-        fig.add_trace(
-            go.Scatter(
-                x=xvals, y=yvals,
-                mode="lines+markers",
-                line=dict(color=band_colors[name], width=3),
-                marker=dict(size=6),
-                name=name.capitalize(),
-                hovertemplate="PSI=%{x:.1f}<br>Depth=%{y:.1f} in<extra></extra>",
-                showlegend=True,
+        xs = bands[name]["x"]
+        ys = bands[name]["y"]
+        if len(xs) == 0:
+            # dummy trace just for legend if band not present
+            fig.add_trace(go.Scatter(x=[None], y=[None],
+                                     mode="lines",
+                                     line=dict(color=colors_hex[name], width=3),
+                                     name=name.capitalize(),
+                                     showlegend=True))
+        else:
+            fig.add_trace(
+                go.Scatter(
+                    x=xs, y=ys,
+                    mode="lines+markers",
+                    line=dict(color=colors_hex[name], width=3),
+                    marker=dict(size=6),
+                    name=name.capitalize(),
+                    hovertemplate="Depth=%{x:.1f} in<br>PSI=%{y:.1f}<extra></extra>",
+                )
             )
-        )
 
-    # Axes
-    fig.update_yaxes(autorange="reversed", title="Depth (in)")
-    fig.update_xaxes(title="PSI")
+    # Axes: Depth on X; PSI on Y
+    fig.update_xaxes(title="Depth (in)")
+    fig.update_yaxes(title="PSI")
 
-    # Reference lines — do NOT show in legend to avoid duplicate labels
-    fig.add_vline(x=LOW,  line_dash="dash", line_color=band_colors["moderate"], showlegend=False)
-    fig.add_vline(x=HIGH, line_dash="dash", line_color=band_colors["high"],      showlegend=False)
+    # Horizontal threshold lines (at 200 & 300 PSI)
+    fig.add_hline(y=LOW,  line_dash="dash", line_color=colors_hex["moderate"])
+    fig.add_hline(y=HIGH, line_dash="dash", line_color=colors_hex["high"])
 
     fig.update_layout(
-        margin=dict(l=10, r=10, t=50, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=40, b=10),
+        legend=dict(orientation="h", y=1.02, x=1, xanchor="right"),
     )
     return fig
 
