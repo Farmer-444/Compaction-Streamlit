@@ -268,36 +268,42 @@ def point_in_poly(xs, ys, poly):
 def extract_drawn_polygon(folium_return):
     """
     Get the last drawn polygon (if any) from st_folium return dict.
-    Returns list of (lon, lat) tuples or None.
+    Returns list of (lon, lat) tuples normalized to (lon, lat), or None.
     """
     feat = None
-    # Try last_active_drawing
     if folium_return and folium_return.get("last_active_drawing"):
         feat = folium_return["last_active_drawing"]
-    # Fallback: check all_drawings
     if feat is None and folium_return and folium_return.get("all_drawings"):
         if len(folium_return["all_drawings"]) > 0:
             feat = folium_return["all_drawings"][-1]
-
     if not feat:
         return None
 
-    if feat["type"] == "Feature":
+    # GeoJSON-like structure
+    if feat.get("type") == "Feature":
         geom = feat.get("geometry", {})
     else:
-        geom = feat  # sometimes geometry is at top level
+        geom = feat
 
     if geom.get("type") != "Polygon":
         return None
 
-    # GeoJSON coords: [ [ [lon, lat], ... ] ]  (first ring)
-    ring = geom["coordinates"][0]
-    # Convert to tuples
-    poly = [(float(lon), float(lat)) for lon, lat in ring]
-    # Ensure closed polygon
+    ring = geom["coordinates"][0]  # outer ring
+
+    # Auto-detect coordinate order and normalize to (lon, lat)
+    def to_lonlat(pt):
+        a, b = float(pt[0]), float(pt[1])
+        # If first looks like latitude and second like longitude, swap
+        if abs(a) <= 90 and abs(b) >= 90:   # likely (lat, lon)
+            return (b, a)
+        # If both look valid, prefer GeoJSON order (lon, lat)
+        return (a, b)
+
+    poly = [to_lonlat(p) for p in ring]
     if poly[0] != poly[-1]:
-        poly.append(poly[0])
+        poly.append(poly[0])  # close ring
     return poly
+
 
 
 # -------------------------
